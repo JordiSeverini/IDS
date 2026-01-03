@@ -1,0 +1,16 @@
+# Python cache files
+__pycache__/
+*.pyc
+
+# Environment files
+.env
+venv/
+
+# Logs and packet captures
+logs/
+*.pcap
+*.pcapng
+
+# OS files
+.DS_Store
+Thumbs.db
