@@ -1,93 +1,98 @@
-# April 10, 2026: Implemented Rule 1 – Tracks packet frequency per source IP and triggers an alert when activity exceeds 50 packets within a 10-second window.
-    # Next: Potentially add flagged src IPs to a list ??
+"""
+Network Packet Sniffer - Rule Engine
+Rule 1: High-frequency packet rate detection per source IP.
+"""
 
-
-# sniff -> starts capturing live network packets
-# IP -> lets you check/ extract IPv4 lyer info from packets
-# conf -> Scapy configuration object (used to access network interfaces)
-# collections : defaultdict -> special dictionary that auto-initializes missing keys to
 from scapy.all import sniff, IP, conf
-from datetime import datetime, timezone 
+from datetime import datetime, timezone
 from collections import defaultdict
 
 
-# conf.ifaces -> scapys interface manager 
-    # Stores information such as Ethernet adapters, Wi-fi adapters, etc
-    # .values() -> returns interface objects 
- 
+# ---------------------------------------------------------------------------
+# Interface Discovery
+# ---------------------------------------------------------------------------
+
 for iface in conf.ifaces.values():
     print(iface.index, iface.name, iface.ips)
 
-# !!IMPLEMENT A WAY TO ASK USER FOR THE INTERFACE !!
 
-# Timeframe to keep timestamps
+# ---------------------------------------------------------------------------
+# Configuration
+# ---------------------------------------------------------------------------
+
 WINDOW_SECONDS = 10
-# Packets per IP before alert 
-THRESHOLD = 50 
+"""Rolling time window (in seconds) used to evaluate packet rate per source IP."""
 
-# dict holding IP address 
+THRESHOLD = 50
+"""Maximum number of packets allowed from a single source IP within WINDOW_SECONDS
+before an alert is triggered."""
+
 ip_counter = defaultdict(list)
+"""Maps each source IP address to a list of UTC timestamps for recent packets."""
 
 
-# datetime.now() -> gets current time
-# timezone.utc -> forces utc timezone
-# isoformat() -> converts to standard readable string
-def iso_ts(): 
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def iso_ts() -> str:
+    """Return the current UTC time as an ISO 8601 formatted string."""
     return datetime.now(timezone.utc).isoformat()
 
-# Runs everytime a pkt is captured (sniff calls this)
-def handle_packet (pkt):
-    
-    # If the pkt does not contain IP address ignore it (uses import IP)
+
+# ---------------------------------------------------------------------------
+# Packet Handler
+# ---------------------------------------------------------------------------
+
+def handle_packet(pkt) -> None:
+    """
+    Process a single captured packet.
+
+    Extracts the source IP, destination IP, and protocol. Applies Rule 1:
+    tracks packet frequency per source IP over a rolling window and triggers
+    an alert if the packet count reaches THRESHOLD.
+
+    Args:
+        pkt: A Scapy packet object passed in by the sniff callback.
+    """
     if IP not in pkt:
         return
-    
 
-    src = pkt[IP].src # Go to the IP layer of this packet then give me the source field
-    dst = pkt[IP].dst
+    src   = pkt[IP].src
+    dst   = pkt[IP].dst
     proto = pkt[IP].proto
-    now = datetime.now(timezone.utc)
+    now   = datetime.now(timezone.utc)
 
-    
-    # Rule 1: Packet rate capturing
-
-    # Add the current timestamp to the list 
+    # --- Rule 1: High packet-rate detection ---
     ip_counter[src].append(now)
 
-    # Modifies the ip_counter[src] list
-        # removes timestamps from outside the WINDOW_SECONDS 
     ip_counter[src] = [
-       t for t in ip_counter[src] 
-        if(now - t).total_seconds() <= WINDOW_SECONDS
+        t for t in ip_counter[src]
+        if (now - t).total_seconds() <= WINDOW_SECONDS
     ]
 
-    # Count how many timestamps in the listpacket
     count = len(ip_counter[src])
 
-
-    # Checks if the length of the ip_counter[src] list is equal to the threshold
-        # Prints an alert if it is 
     if count == THRESHOLD:
-        print("ALERT : High packet rate detected from: ", src)
-
-
+        print(f"ALERT: High packet rate detected from {src} "
+              f"({count} packets in {WINDOW_SECONDS}s)")
 
     print({
-        "ts": iso_ts(),
-        "src": src, 
-        "dst": dst,
-        "proto":proto,
-        "count_last-10s": count
+        "ts":            iso_ts(),
+        "src":           src,
+        "dst":           dst,
+        "proto":         proto,
+        "count_last_10s": count,
     })
 
-# Packet capturing starts here
-# iface -> Listen only on this interface 
-# prn = handle_packet -> for every packet captured call handle_packet
-# store = False -> dont save packets in memory
-# count = 5 -> stop after five packets 
+
+# ---------------------------------------------------------------------------
+# Entry Point
+# ---------------------------------------------------------------------------
 
 sniff(
-    iface = "Ethernet 3", 
-    prn = handle_packet, 
-    store = False, 
-    count = 5)
+    iface="Ethernet 3",
+    prn=handle_packet,
+    store=False,
+    count=5,
+)
